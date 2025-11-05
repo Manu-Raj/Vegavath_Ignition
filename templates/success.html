@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card mx-auto shadow p-4" style="max-width:760px;">
+  <h3 class="text-success">✅ Submission received</h3>
+  <p class="text-muted">We received your ZIP and started processing it. Below are live upload logs as we push files to GitHub.</p>
+
+  <p><strong>Team:</strong> {{ team }}</p>
+
+  <div class="card bg-dark text-light p-3" style="height:380px; overflow:auto;" id="logBox">
+    <div id="logContent" style="white-space:pre-wrap; font-family: monospace; font-size:13px;"></div>
+  </div>
+
+  <div class="mt-3">
+    <a href="/" class="btn btn-primary">Back to Verify</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  const uploadId = "{{ upload_id }}";
+  const logContent = document.getElementById('logContent');
+  const logBox = document.getElementById('logBox');
+
+  if (!uploadId) {
+    logContent.textContent = "No upload id provided.";
+    throw new Error("No upload id");
+  }
+
+  function appendLine(text, cls) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    if (cls) div.className = cls;
+    logContent.appendChild(div);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  const es = new EventSource('/events/' + uploadId);
+
+  es.addEventListener('info', function(e){
+    const data = JSON.parse(e.data);
+    appendLine('[INFO] ' + data);
+  });
+
+  es.addEventListener('upload_start', function(e){
+    const data = JSON.parse(e.data);
+    appendLine('[START] ' + data.index + '/' + data.total + ' - ' + data.file);
+  });
+
+  es.addEventListener('upload_done', function(e){
+    const data = JSON.parse(e.data);
+    appendLine('[OK]   ' + data.file + ' (status ' + data.status + ')');
+  });
+
+  es.addEventListener('upload_error', function(e){
+    const data = JSON.parse(e.data);
+    appendLine('[ERR]  ' + data.file + ' (status ' + data.status + ') - ' + (data.response||''));
+  });
+
+  es.addEventListener('finished', function(e){
+    const data = JSON.parse(e.data);
+    appendLine('[DONE] ' + (data.message || 'All done.'));
+  });
+
+  es.addEventListener('error', function(e){
+    appendLine('[ERROR] Connection error or server timeout.');
+  });
+
+  es.addEventListener('closed', function(e){
+    appendLine('[CLOSED] Upload worker finished.');
+    try { es.close(); } catch(e){}
+  });
+
+})();
+</script>
+{% endblock %}
