@@ -1,75 +1,95 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="card mx-auto shadow p-4" style="max-width:760px;">
-  <h3 class="text-success">✅ Submission received</h3>
-  <p class="text-muted">We received your ZIP and started processing it. Below are live upload logs as we push files to GitHub.</p>
+<div class="card mx-auto shadow p-4" style="max-width:700px;">
+    <h3 class="text-center text-primary mb-3">⏳ Upload Progress</h3>
 
-  <p><strong>Team:</strong> {{ team }}</p>
+    <!-- Progress bar -->
+    <div class="progress mb-3" style="height:25px;">
+        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+             role="progressbar" style="width: 0%;">0%</div>
+    </div>
 
-  <div class="card bg-dark text-light p-3" style="height:380px; overflow:auto;" id="logBox">
-    <div id="logContent" style="white-space:pre-wrap; font-family: monospace; font-size:13px;"></div>
-  </div>
+    <!-- Log output -->
+    <div class="border rounded p-3 bg-light" style="height: 280px; overflow-y: auto; font-family: monospace;">
+        <div id="log">Connecting to server...</div>
+    </div>
 
-  <div class="mt-3">
-    <a href="/" class="btn btn-primary">Back to Verify</a>
-  </div>
+    <!-- Back button -->
+    <div class="text-center mt-4">
+        <a href="/" id="backBtn" class="btn btn-primary" style="display:none;">⬅️ Back to Verify</a>
+    </div>
 </div>
 
 <script>
-(function(){
-  const uploadId = "{{ upload_id }}";
-  const logContent = document.getElementById('logContent');
-  const logBox = document.getElementById('logBox');
+const uploadId = "{{ upload_id }}";
+const eventSource = new EventSource(`/events/${uploadId}`);
 
-  if (!uploadId) {
-    logContent.textContent = "No upload id provided.";
-    throw new Error("No upload id");
-  }
+let totalFiles = 0;
+let uploaded = 0;
+const bar = document.getElementById('progressBar');
+const logDiv = document.getElementById('log');
+const backBtn = document.getElementById('backBtn');
 
-  function appendLine(text, cls) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    if (cls) div.className = cls;
-    logContent.appendChild(div);
-    logBox.scrollTop = logBox.scrollHeight;
-  }
+function log(msg, color="black") {
+    const p = document.createElement('div');
+    p.style.color = color;
+    p.textContent = msg;
+    logDiv.appendChild(p);
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
 
-  const es = new EventSource('/events/' + uploadId);
+// ---- Event Listeners ----
 
-  es.addEventListener('info', function(e){
-    const data = JSON.parse(e.data);
-    appendLine('[INFO] ' + data);
-  });
+// Info event — total files
+eventSource.addEventListener('info', e => {
+    const data = e.data.replace(/"/g, "");
+    log("ℹ️ " + data, "blue");
+    const match = data.match(/(\d+)/);
+    if (match) totalFiles = parseInt(match[1]);
+});
 
-  es.addEventListener('upload_start', function(e){
-    const data = JSON.parse(e.data);
-    appendLine('[START] ' + data.index + '/' + data.total + ' - ' + data.file);
-  });
+// Successful upload per file
+eventSource.addEventListener('upload_done', e => {
+    const d = JSON.parse(e.data);
+    uploaded = d.index;
+    const percent = totalFiles ? Math.round((uploaded / totalFiles) * 100) : 0;
+    bar.style.width = percent + "%";
+    bar.textContent = percent + "%";
+    log(`✅ Uploaded: ${d.file} (${uploaded}/${totalFiles})`, "green");
+});
 
-  es.addEventListener('upload_done', function(e){
-    const data = JSON.parse(e.data);
-    appendLine('[OK]   ' + data.file + ' (status ' + data.status + ')');
-  });
+// GitHub log (extra details)
+eventSource.addEventListener('github_log', e => {
+    const d = JSON.parse(e.data);
+    const url = d.url ? d.url : "(no link)";
+    log(`📘 GitHub API → ${d.status} | ${d.file} | ${url}`, "#555");
+});
 
-  es.addEventListener('upload_error', function(e){
-    const data = JSON.parse(e.data);
-    appendLine('[ERR]  ' + data.file + ' (status ' + data.status + ') - ' + (data.response||''));
-  });
+// Error during upload
+eventSource.addEventListener('upload_error', e => {
+    const d = JSON.parse(e.data);
+    log(`❌ Error uploading ${d.file} (HTTP ${d.status})`, "red");
+});
 
-  es.addEventListener('finished', function(e){
-    const data = JSON.parse(e.data);
-    appendLine('[DONE] ' + (data.message || 'All done.'));
-  });
+// Finished
+eventSource.addEventListener('finished', e => {
+    const msg = e.data.replace(/"/g, "");
+    log(`🎉 ${msg}`, "green");
+    bar.style.width = "100%";
+    bar.textContent = "100%";
+    setTimeout(() => {
+        backBtn.style.display = "inline-block";
+    }, 800);
+});
 
-  es.addEventListener('error', function(e){
-    appendLine('[ERROR] Connection error or server timeout.');
-  });
+// Any exceptions
+eventSource.addEventListener('error', e => {
+    log(`⚠️ Error: ${e.data}`, "red");
+});
 
-  es.addEventListener('closed', function(e){
-    appendLine('[CLOSED] Upload worker finished.');
-    try { es.close(); } catch(e){}
-  });
-
-})();
+eventSource.addEventListener('closed', e => {
+    eventSource.close();
+    log("🔒 Connection closed.", "gray");
+});
 </script>
 {% endblock %}
